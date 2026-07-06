@@ -180,6 +180,55 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
 
+  apps/smtp-out:
+    dependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.685.0
+        version: 3.1079.0
+      '@smtp/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      bcryptjs:
+        specifier: ^2.4.3
+        version: 2.4.3
+      bullmq:
+        specifier: ^5.28.2
+        version: 5.79.2
+      dotenv:
+        specifier: ^16.4.5
+        version: 16.6.1
+      ioredis:
+        specifier: ^5.4.1
+        version: 5.11.1
+      mailparser:
+        specifier: ^3.7.1
+        version: 3.9.12
+      smtp-server:
+        specifier: ^3.13.4
+        version: 3.19.1
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+    devDependencies:
+      '@types/bcryptjs':
+        specifier: ^2.4.6
+        version: 2.4.6
+      '@types/mailparser':
+        specifier: ^3.4.5
+        version: 3.4.6
+      '@types/node':
+        specifier: ^22.9.0
+        version: 22.20.0
+      '@types/smtp-server':
+        specifier: ^3.5.10
+        version: 3.5.13
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.5
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+
   apps/web:
     dependencies:
       '@smtp/shared':
@@ -216,6 +265,34 @@ importers:
       vite:
         specifier: ^5.4.10
         version: 5.4.21(@types/node@22.20.0)(terser@5.48.0)
+
+  apps/webhooks-worker:
+    dependencies:
+      '@smtp/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      bullmq:
+        specifier: ^5.28.2
+        version: 5.79.2
+      dotenv:
+        specifier: ^16.4.5
+        version: 16.6.1
+      ioredis:
+        specifier: ^5.4.1
+        version: 5.11.1
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.9.0
+        version: 22.20.0
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.5
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
 
   packages/db:
     dependencies:
