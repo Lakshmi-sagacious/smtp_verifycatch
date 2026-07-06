@@ -37,3 +37,8 @@ coverage
 # local-filesystem storage
 /storage
 
+# tsc incremental cache
+tsconfig.tsbuildinfo
+*/tsconfig.tsbuildinfo
+**/*.tsbuildinfo
+
