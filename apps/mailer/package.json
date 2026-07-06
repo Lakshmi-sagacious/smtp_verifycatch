@@ -1,0 +1,25 @@
+{
+  "name": "@smtp/mailer",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.685.0",
+    "@smtp/db": "workspace:*",
+    "bullmq": "^5.28.2",
+    "dotenv": "^16.4.5",
+    "ioredis": "^5.4.1",
+    "nodemailer": "^6.9.16",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/nodemailer": "^6.4.17",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

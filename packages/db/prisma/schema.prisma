@@ -1,0 +1,566 @@
+// Prisma schema for the SMTP-as-a-Service platform.
+//
+// Design principles:
+//   1. Multi-tenant from day one. Every resource has an orgId.
+//   2. One unified Message model for both sandbox catches and relay outbound,
+//      discriminated by `kind`. Simpler indexing, one event stream, one UI code path.
+//   3. Status is a column for hot queries; MessageEvent is the append-only history
+//      that drives webhooks and timeline UIs.
+//   4. Bodies (text/html) inline for quick display. Raw MIME + attachments live
+//      in object storage (MinIO/S3), referenced by storageKey.
+//   5. Secrets stored as hashes (bcrypt/argon2 for passwords, sha256 for API keys).
+//      DKIM private keys need envelope-encryption in prod — dev stores plaintext.
+//
+// Naming: cuid() for all ids. snake_case avoided — Prisma default camelCase in code,
+// Postgres will get quoted mixed-case column names.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Tenancy & Auth
+// ─────────────────────────────────────────────────────────────
+
+model Organization {
+  id        String    @id @default(cuid())
+  slug      String    @unique
+  name      String
+  plan      Plan      @default(FREE)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  memberships     Membership[]
+  invitations     Invitation[]
+  inboxes         Inbox[]
+  domains         Domain[]
+  apiKeys         ApiKey[]
+  smtpCredentials SmtpCredential[]
+  messages        Message[]
+  suppressions    SuppressionEntry[]
+  webhooks        Webhook[]
+  templates       Template[]
+  ipPools         IpPool[]
+  auditLogs       AuditLog[]
+  usageRecords    UsageRecord[]
+
+  @@index([deletedAt])
+}
+
+enum Plan {
+  FREE
+  STARTER
+  GROWTH
+  BUSINESS
+  ENTERPRISE
+}
+
+model User {
+  id                 String    @id @default(cuid())
+  email              String    @unique
+  emailVerifiedAt    DateTime?
+  passwordHash       String?
+  name               String?
+  avatarUrl          String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  deletedAt          DateTime?
+  lastLoginAt        DateTime?
+
+  memberships        Membership[]
+  sessions           Session[]
+  passwordResets     PasswordResetToken[]
+  emailVerifications EmailVerificationToken[]
+  invitationsSent    Invitation[]             @relation("InvitationInviter")
+  auditLogs          AuditLog[]
+
+  @@index([deletedAt])
+}
+
+model Membership {
+  id        String   @id @default(cuid())
+  userId    String
+  orgId     String
+  role      Role     @default(DEVELOPER)
+  createdAt DateTime @default(now())
+
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, orgId])
+  @@index([orgId])
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  DEVELOPER
+  VIEWER
+}
+
+model Invitation {
+  id          String    @id @default(cuid())
+  orgId       String
+  email       String
+  role        Role      @default(DEVELOPER)
+  tokenHash   String    @unique
+  invitedById String
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  invitedBy User         @relation("InvitationInviter", fields: [invitedById], references: [id])
+
+  @@index([orgId, email])
+}
+
+model Session {
+  id               String    @id @default(cuid())
+  userId           String
+  refreshTokenHash String    @unique
+  userAgent        String?
+  ipAddress        String?
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  lastUsedAt       DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Sandbox: inboxes that catch test emails (never delivered)
+// ─────────────────────────────────────────────────────────────
+
+model Inbox {
+  id          String    @id @default(cuid())
+  orgId       String
+  name        String
+  description String?
+  color       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  org         Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  credentials InboxCredential[]
+  messages    Message[]
+
+  @@index([orgId])
+}
+
+// SMTP AUTH credentials scoped to a single inbox. `username` is what the client
+// sends in AUTH PLAIN/LOGIN; we look up the inbox from there.
+model InboxCredential {
+  id           String    @id @default(cuid())
+  inboxId      String
+  username     String    @unique
+  passwordHash String
+  label        String?
+  lastUsedAt   DateTime?
+  revokedAt    DateTime?
+  createdAt    DateTime  @default(now())
+
+  inbox Inbox @relation(fields: [inboxId], references: [id], onDelete: Cascade)
+
+  @@index([inboxId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Production relay: sending domains + credentials + API keys
+// ─────────────────────────────────────────────────────────────
+
+model Domain {
+  id                 String       @id @default(cuid())
+  orgId              String
+  name               String
+  verificationStatus DomainStatus @default(PENDING)
+  dkimSelector       String
+  dkimPublicKey      String       @db.Text
+  // WARNING: plaintext in dev only. Production must envelope-encrypt via KMS
+  // (AWS KMS / GCP KMS / vault-transit) before insert.
+  dkimPrivateKey     String       @db.Text
+  spfExpected        String
+  dmarcPolicy        String?
+  verifiedAt         DateTime?
+  lastCheckedAt      DateTime?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  messages Message[]
+
+  @@unique([orgId, name])
+  @@index([verificationStatus])
+}
+
+enum DomainStatus {
+  PENDING
+  VERIFIED
+  FAILED
+  DISABLED
+}
+
+// REST API keys. `keyHash` is sha256 (hot-path lookup — bcrypt is too slow).
+// `keyPrefix` is the first ~8 chars, shown in the UI so users can identify keys.
+model ApiKey {
+  id          String    @id @default(cuid())
+  orgId       String
+  name        String
+  keyPrefix   String    @unique
+  keyHash     String    @unique
+  scopes      String[]
+  expiresAt   DateTime?
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  createdById String?
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+}
+
+// SMTP submission credentials for the relay (not the sandbox — sandbox uses InboxCredential).
+model SmtpCredential {
+  id           String    @id @default(cuid())
+  orgId        String
+  name         String
+  username     String    @unique
+  passwordHash String
+  lastUsedAt   DateTime?
+  revokedAt    DateTime?
+  createdAt   DateTime  @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// IP pools (dedicated IP support — phase 4, scaffolded now)
+// ─────────────────────────────────────────────────────────────
+
+model IpPool {
+  id        String   @id @default(cuid())
+  orgId     String
+  name      String
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  ipAddresses IpAddress[]
+
+  @@index([orgId])
+}
+
+model IpAddress {
+  id          String   @id @default(cuid())
+  poolId      String
+  ip          String   @unique
+  ptrRecord   String?
+  warmupStage Int      @default(0)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  pool     IpPool    @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  messages Message[]
+
+  @@index([poolId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Unified Message model + event stream
+// ─────────────────────────────────────────────────────────────
+
+model Message {
+  id     String        @id @default(cuid())
+  orgId  String
+  kind   MessageKind
+  status MessageStatus @default(RECEIVED)
+
+  // routing — nullable because a message may outlive its inbox/domain (SetNull)
+  inboxId     String?
+  domainId    String?
+  ipAddressId String?
+
+  // SMTP envelope (from MAIL FROM / RCPT TO — not the headers)
+  mailFrom String
+  rcptTo   String[]
+
+  // parsed RFC 5322 headers
+  fromAddress     String?
+  toAddresses     String[]
+  ccAddresses     String[]
+  bccAddresses    String[]
+  subject         String?
+  messageIdHeader String?
+  inReplyTo       String?
+  headers         Json
+
+  // rendered bodies for fast display
+  textBody       String?  @db.Text
+  htmlBody       String?  @db.Text
+  hasAttachments Boolean  @default(false)
+  sizeBytes      Int
+
+  // raw MIME lives in object storage
+  rawStorageKey String
+
+  // provenance
+  smtpAuthUser String?
+  clientIp     String?
+  spamScore    Float?
+  spamReport   Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org         Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  inbox       Inbox?         @relation(fields: [inboxId], references: [id], onDelete: SetNull)
+  domain      Domain?        @relation(fields: [domainId], references: [id], onDelete: SetNull)
+  ipAddress   IpAddress?     @relation(fields: [ipAddressId], references: [id], onDelete: SetNull)
+  attachments Attachment[]
+  events      MessageEvent[]
+
+  @@index([orgId, createdAt(sort: Desc)])
+  @@index([inboxId, createdAt(sort: Desc)])
+  @@index([domainId, createdAt(sort: Desc)])
+  @@index([status])
+  @@index([messageIdHeader])
+}
+
+enum MessageKind {
+  SANDBOX_INBOUND // caught by sandbox, never delivered — terminal in STORED
+  RELAY_OUTBOUND  // submitted by customer, being delivered
+}
+
+enum MessageStatus {
+  RECEIVED   // accepted at SMTP-in
+  QUEUED     // relay: waiting for delivery worker
+  SENDING    // relay: in-flight to recipient MTA
+  DELIVERED  // relay: 250 OK from recipient MTA
+  DEFERRED   // relay: 4xx, will retry
+  BOUNCED    // relay: 5xx or DSN received
+  COMPLAINED // FBL complaint received
+  REJECTED   // rejected at SMTP-in (auth/policy/rate)
+  STORED     // sandbox: successfully stored (terminal)
+}
+
+model MessageEvent {
+  id         String    @id @default(cuid())
+  messageId  String
+  type       EventType
+  detail     Json?
+  occurredAt DateTime  @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId, occurredAt])
+  @@index([type, occurredAt])
+}
+
+enum EventType {
+  RECEIVED
+  QUEUED
+  SENDING
+  DELIVERED
+  DEFERRED
+  BOUNCED
+  COMPLAINED
+  REJECTED
+  OPENED
+  CLICKED
+  UNSUBSCRIBED
+  STORED
+}
+
+model Attachment {
+  id          String   @id @default(cuid())
+  messageId   String
+  filename    String
+  contentType String
+  sizeBytes   Int
+  storageKey  String
+  contentId   String?
+  createdAt   DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Suppression list (bounces, complaints, unsubs — one list per org)
+// ─────────────────────────────────────────────────────────────
+
+model SuppressionEntry {
+  id        String            @id @default(cuid())
+  orgId     String
+  email     String
+  reason    SuppressionReason
+  detail    String?
+  createdAt DateTime          @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, email])
+  @@index([orgId, reason])
+}
+
+enum SuppressionReason {
+  HARD_BOUNCE
+  COMPLAINT
+  UNSUBSCRIBE
+  MANUAL
+}
+
+// ─────────────────────────────────────────────────────────────
+// Webhooks
+// ─────────────────────────────────────────────────────────────
+
+model Webhook {
+  id        String      @id @default(cuid())
+  orgId     String
+  url       String
+  secret    String
+  events    EventType[]
+  active    Boolean     @default(true)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  org        Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@index([orgId])
+}
+
+model WebhookDelivery {
+  id          String    @id @default(cuid())
+  webhookId   String
+  eventType   EventType
+  payload     Json
+  attempts    Int       @default(0)
+  lastStatus  Int?
+  lastError   String?
+  succeededAt DateTime?
+  nextRetryAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([webhookId, createdAt])
+  @@index([nextRetryAt])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Templates
+// ─────────────────────────────────────────────────────────────
+
+model Template {
+  id        String   @id @default(cuid())
+  orgId     String
+  slug      String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org      Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  versions TemplateVersion[]
+
+  @@unique([orgId, slug])
+}
+
+model TemplateVersion {
+  id          String   @id @default(cuid())
+  templateId  String
+  version     Int
+  subject     String
+  htmlBody    String   @db.Text
+  textBody    String?  @db.Text
+  variables   Json?
+  createdAt   DateTime @default(now())
+  createdById String?
+
+  template Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, version])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Audit + usage metering
+// ─────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  orgId     String
+  actorId   String?
+  action    String
+  target    String?
+  detail    Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  actor User?        @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, createdAt(sort: Desc)])
+  @@index([action])
+}
+
+model UsageRecord {
+  id          String      @id @default(cuid())
+  orgId       String
+  metric      UsageMetric
+  quantity    BigInt
+  periodStart DateTime
+  periodEnd   DateTime
+  createdAt   DateTime    @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, metric, periodStart])
+}
+
+enum UsageMetric {
+  EMAILS_SENT
+  EMAILS_CAUGHT
+  STORAGE_BYTES
+}

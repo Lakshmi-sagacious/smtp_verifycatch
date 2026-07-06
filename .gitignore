@@ -1,0 +1,39 @@
+node_modules
+dist
+build
+.next
+.turbo
+
+# env
+.env
+.env.local
+.env.*.local
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# ide
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea
+
+# os
+.DS_Store
+Thumbs.db
+
+# prisma
+packages/db/prisma/migrations/dev.db*
+
+# testing
+coverage
+.nyc_output
+
+# vite
+.vite
+
+# local-filesystem storage
+/storage
+

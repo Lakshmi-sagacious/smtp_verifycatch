@@ -1,0 +1,30 @@
+{
+  "name": "smtp-platform",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20.10.0"
+  },
+  "scripts": {
+    "dev:api": "pnpm --filter @smtp/api dev",
+    "dev:web": "pnpm --filter @smtp/web dev",
+    "dev:smtp": "pnpm --filter @smtp/smtp-in dev",
+    "dev:smtp-out": "pnpm --filter @smtp/smtp-out dev",
+    "dev:mailer": "pnpm --filter @smtp/mailer dev",
+    "dev:webhooks": "pnpm --filter @smtp/webhooks-worker dev",
+    "build:pkgs": "pnpm --filter=./packages/* build",
+    "predev": "pnpm build:pkgs",
+    "dev": "pnpm --parallel --stream --filter=./apps/* dev",
+    "build": "pnpm -r build",
+    "db:generate": "pnpm --filter @smtp/db generate",
+    "db:migrate": "pnpm --filter @smtp/db migrate",
+    "db:studio": "pnpm --filter @smtp/db studio",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
