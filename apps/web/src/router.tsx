@@ -12,6 +12,7 @@ import { SmtpCredentialsPage } from './pages/SmtpCredentials';
 import { WebhooksPage } from './pages/Webhooks';
 import { LogsPage } from './pages/Logs';
 import { LogDetailPage } from './pages/LogDetail';
+import { SendTestPage } from './pages/SendTest';
 import { RequireAuth } from './lib/RequireAuth';
 import { Shell } from './Shell';
 
@@ -33,6 +34,7 @@ export const router = createBrowserRouter([
           { path: 'domains', element: <DomainsPage /> },
           { path: 'domains/:id', element: <DomainDetailPage /> },
           { path: 'api-keys', element: <ApiKeysPage /> },
+          { path: 'send-test', element: <SendTestPage /> },
           { path: 'smtp-credentials', element: <SmtpCredentialsPage /> },
           { path: 'webhooks', element: <WebhooksPage /> },
           { path: 'logs', element: <LogsPage /> },

@@ -4,5 +4,6 @@ export * from './message';
 export * from './domain';
 export * from './api-key';
 export * from './send';
+export * from './send-test';
 export * from './smtp-credential';
 export * from './webhook';

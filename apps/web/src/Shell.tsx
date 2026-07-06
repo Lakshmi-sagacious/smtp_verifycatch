@@ -38,6 +38,7 @@ export function Shell() {
           <Link to="/inboxes">Inboxes</Link>
           <div className="muted" style={{ padding: '0.75rem 0.75rem 0.25rem', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Relay</div>
           <Link to="/domains">Domains</Link>
+          <Link to="/send-test">Send test</Link>
           <Link to="/api-keys">API keys</Link>
           <Link to="/smtp-credentials">SMTP credentials</Link>
           <Link to="/webhooks">Webhooks</Link>
