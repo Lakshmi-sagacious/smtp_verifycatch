@@ -8,7 +8,12 @@ export function Shell() {
   return (
     <div className="shell">
       <aside className="sidebar">
-        <div className="logo">SMTP Platform</div>
+        <div className="logo">
+          <span>
+            Verif<span className="brand-y">y</span>Cat<span className="brand-c">c</span>h
+          </span>
+          <small>SMTP</small>
+        </div>
 
         {activeOrg && (
           <div className="org">
@@ -16,7 +21,6 @@ export function Shell() {
               <select
                 value={activeOrgId ?? ''}
                 onChange={(e) => setActiveOrg(e.target.value)}
-                style={{ background: 'transparent', border: 'none', padding: 0, fontSize: '0.9rem' }}
               >
                 {memberships.map((m) => (
                   <option key={m.orgId} value={m.orgId}>
@@ -34,9 +38,31 @@ export function Shell() {
         <nav>
           <Link to="/dashboard">Dashboard</Link>
           <Link to="/logs">Logs</Link>
-          <div className="muted" style={{ padding: '0.75rem 0.75rem 0.25rem', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Sandbox</div>
+          <div
+            className="muted"
+            style={{
+              padding: '0.85rem 0.85rem 0.3rem',
+              fontSize: '0.68rem',
+              textTransform: 'uppercase',
+              letterSpacing: '0.14em',
+              fontWeight: 700,
+            }}
+          >
+            Sandbox
+          </div>
           <Link to="/inboxes">Inboxes</Link>
-          <div className="muted" style={{ padding: '0.75rem 0.75rem 0.25rem', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Relay</div>
+          <div
+            className="muted"
+            style={{
+              padding: '0.85rem 0.85rem 0.3rem',
+              fontSize: '0.68rem',
+              textTransform: 'uppercase',
+              letterSpacing: '0.14em',
+              fontWeight: 700,
+            }}
+          >
+            Relay
+          </div>
           <Link to="/domains">Domains</Link>
           <Link to="/send-test">Send test</Link>
           <Link to="/api-keys">API keys</Link>
@@ -48,7 +74,7 @@ export function Shell() {
           <div>{user?.email}</div>
           <button
             onClick={() => logout()}
-            style={{ marginTop: '0.5rem', padding: '0.35rem 0.75rem', fontSize: '0.85rem' }}
+            style={{ marginTop: '0.6rem', padding: '0.4rem 0.85rem', fontSize: '0.82rem', width: '100%' }}
           >
             Sign out
           </button>
